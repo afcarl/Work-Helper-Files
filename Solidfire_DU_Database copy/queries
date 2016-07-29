@@ -1,0 +1,82 @@
+
+list_queries={}
+
+list_queries['customers_table'] = '''select distinct customer_uid, customer_name from customers where ds>date_sub(current_date(),7)'''
+
+list_queries['cluster_capacity'] ='''select createdon, customeruid, clusteruid, collectoruid, data.activeBlockSpace,data.activesessions, data.averageIOPS,
+data.clusterrecentiosize, data.clusterrecentiosize, data.currentiops, data.maxOverProvisionableSpace, data.maxusedspace, data.nonZeroBlocks, data.peakActiveSessions, data.peakIOPS
+from aiq_prod.cluster_capacity
+where ds >=  date_sub(current_date, 1)'''
+
+list_queries['cluster_node_drives'] ='''
+            select
+ customeruid,clusteruid,collectoruid,nodeid, ds,
+ dataview.securitylocked,
+ dataview.smartssdwritecapable,
+ dataview.poweronhours,
+ dataview.pathlink,
+ dataview.dev,
+ dataview.lifetimewritebytes,
+ dataview.reservecapacitypercent,
+ dataview.scsicompatid,
+ dataview.version,
+ dataview.liferemainingpercent,
+ dataview.drivetype,
+ dataview.lifetimereadbytes
+from aiq_prod.cluster_node_drives
+lateral view explode
+(
+  disks
+ ) x as dataview
+ where ds >=  date_sub(current_date, 1)'''
+
+list_queries['cluster_fault_data'] ='''select
+ customeruid,
+ clusteruid,
+ collectoruid,
+ source,
+ createdon,
+ ds,
+ dataview.resolved,
+ dataview.code,
+ dataview.nodehardwarefaultid,
+ dataview.type,
+ dataview.nodeid,
+ dataview.driveid,
+ dataview.serviceid,
+ dataview.details,
+ dataview.clusterfaultid
+from aiq_prod.cluster_faults
+lateral view explode
+(
+  data
+ ) x as dataview'''
+
+list_queries['cluster_version_info']='''
+select cu.customer_name as customer, cl.cluster_uid as cluster_uid, cl.collector_uid,
+cl.cluster_name as cluster_name,  v.cluster_version as cluster_version
+from
+(
+  select DISTINCT customer_uid,customer_name
+  from aiq_prod.customers
+  where ds >= date_sub(current_date,14)
+) cu
+join
+(
+  select DISTINCT customer_uid, cluster_uid, cluster_name, collector_uid
+  from aiq_prod.clusters
+  where ds >=  date_sub(current_date,14)
+) cl on cu.customer_uid = cl.customer_uid
+JOIN
+(
+  select customer_uid, cluster_uid, collector_uid,  cluster_version,
+  ROW_NUMBER() OVER (PARTITION BY cluster_uid ORDER BY co DESC) as row_num
+  from
+  (
+    SELECT customer_uid, cluster_uid, collector_uid, cluster_version, created_on as co
+    FROM aiq_prod.cluster_versions
+    WHERE ds >= date_sub(CURRENT_DATE(), 14)
+  ) u
+) v on cl.cluster_uid = v.cluster_uid  AND cl.collector_uid = v.collector_uid
+WHERE row_num = 1
+'''

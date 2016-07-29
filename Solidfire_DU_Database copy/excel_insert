@@ -1,0 +1,90 @@
+import mysql.connector
+from mysql.connector import errorcode
+import openpyxl
+from openpyxl import load_workbook
+from copy import copy
+import pandas as pd
+import mysql.connector
+from datetime import date, timedelta
+import openpyxl
+from openpyxl import load_workbook
+import pandas
+from openpyxl import load_workbook
+
+#sets up login information for the cursor
+config = {
+  'user': 'solidfire',
+  'password': 'solidfire',
+  'host': 'dma-cpe-01',
+  'database': 'dma',
+  'raise_on_warnings': True,
+}
+
+#check the make the database connection works and is cursor connects succesfully
+# cursor is created and closed between each database manipulation,
+#cursors onlyn need to be called if there is loop with variable declarations
+
+try:
+    cnx = mysql.connector.connect(**config)
+    cursor = cnx.cursor()
+    print ("successfully connected and cursor created")
+except mysql.connector.Error as err:
+  if err.errno == errorcode.ER_ACCESS_DENIED_ERROR:
+    print("Something is wrong with your user name or password")
+  elif err.errno == errorcode.ER_BAD_DB_ERROR:
+    print("Database does not exist")
+  else:
+    print(err)
+else:
+  cnx.close()
+
+  # connect to MySQL
+  cnx = mysql.connector.connect(**config)
+  # Create dataframes for aiq tables and salesforce tables
+  df_aiq = pd.read_sql("SELECT * FROM aiq_data", con=cnx)
+  df_sf = pd.read_sql("SELECT * FROM SalesforceData", con=cnx)
+
+  df_aiq.head()
+
+  """Push From Pandas in to excel using excel writer"""
+
+  cluster_version_count = df_aiq.groupby('cluster_version').count()
+  cluster_version_count = cluster_version_count[['index']].rename(columns={'index': 'cluster_count'})
+  total_cluster_count = cluster_version_count.cluster_count.sum()
+  cluster_version_count = cluster_version_count.transpose()
+  # get count of each version of the software
+  cluster_version_count = df_aiq.groupby('cluster_version').count()
+  # take first column and rename to count
+  cluster_version_count = cluster_version_count[['index']].rename(columns={'index': 'cluster_count'})
+  # set variable total_cluster_count to total cluster count for inserting later
+  total_cluster_count = cluster_version_count.cluster_count.sum()
+  # tranpose dataframe to excel format
+  cluster_version_count = cluster_version_count.transpose()
+  # add date and time column based on excel format, kept time delta in case day needs to be changed
+  cluster_version_count.insert(0, 'Week Range', ((date.today() - timedelta(days=0)).strftime("%m/%d/%Y")))
+  # insert total_cluster_count column according to excel format
+  cluster_version_count.insert(1, 'Total Cluster Count', total_cluster_count, allow_duplicates=False)
+  cluster_version_count
+
+  # set excel file path
+  excel_file_path = '/home/ryan.riopelle/notebooks/sandbox/ProductionStaging/Final/DU-DL_Auto.xlsx'
+
+  book = load_workbook(excel_file_path)
+  writer = pandas.ExcelWriter(excel_file_path, engine='openpyxl')
+  writer.book = book
+  writer.sheets = dict((ws.title, ws) for ws in book.worksheets)
+  df_sf.to_excel(writer, sheet_name="Salesforce Dataframe")
+  df_aiq.to_excel(writer, sheet_name="AIQ_Crosstab")
+
+  """This adds the data into cluster stats based off of where the last line of code was input"""
+  ws = book.get_sheet_by_name('1. Cluster Stats')
+  max_row = ws.max_row
+  cluster_version_count.to_excel(writer, sheet_name='1. Cluster Stats',
+								 startrow=max_row, startcol=1, header=False, index=False)
+
+  # create new file name variable
+  # new_file_name = "DU_update_%s.xlsx"%((date.today()-timedelta(days=0)).strftime("%m/%d/%Y"))
+  # save file to new named with date
+  # book.save(new_file_name)
+  # save and close workbook
+  writer.save()
